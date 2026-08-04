@@ -32,7 +32,7 @@ if (!DATABASE_URL) {
 }
 
 const MIGRATIONS_DIR = join(process.cwd(), "migrations");
-const MIGRATION_FILES = ["001_initial_schema.sql"];
+const MIGRATION_FILES = ["001_initial_schema.sql", "002_add_session_compliance_note.sql"];
 
 async function runMigrations(): Promise<void> {
   const sql = postgres(DATABASE_URL as string, {

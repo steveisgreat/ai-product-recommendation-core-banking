@@ -58,8 +58,8 @@ export async function generateRecommendations(
     // Insert recommendation rows (1–3)
     for (const rec of llmResult.recommendations) {
       await tx`
-        INSERT INTO recommendations (session_id, customer_id, product_id, rank, rationale, compliance_note, status)
-        VALUES (${sessionId}, ${customerId}, ${rec.product_id}, ${rec.rank}, ${rec.rationale}, ${rec.compliance_note}, 'PENDING')
+        INSERT INTO recommendations (session_id, customer_id, product_id, rank, rationale, compliance_note, session_compliance_note, status)
+        VALUES (${sessionId}, ${customerId}, ${rec.product_id}, ${rec.rank}, ${rec.rationale}, ${rec.compliance_note}, ${llmResult.session_compliance_note}, 'PENDING')
       `
     }
 
