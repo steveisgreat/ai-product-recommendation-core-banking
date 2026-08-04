@@ -1,0 +1,6 @@
+{
+  "buildCommand": "pnpm build",
+  "installCommand": "pnpm install --dangerously-allow-all-builds",
+  "framework": "nextjs",
+  "outputDirectory": ".next"
+}
