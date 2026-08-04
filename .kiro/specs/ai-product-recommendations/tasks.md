@@ -543,13 +543,51 @@
   7. Call `GET /api/recommendations/[customerId]` — expect ORIGINATED status on rec 1
   8. Call `GET /api/eligibility-audit/[sessionId]` — expect audit records
   9. Repeat `POST /api/originate` for same product — expect `{ duplicate: true }`
-- [ ] Create `README.md` with:
-  - Project overview and architecture summary
-  - Prerequisites (Node 18+, pnpm, Postgres, env vars needed)
-  - Setup: `pnpm install` → `pnpm migrate` → `pnpm seed` → `pnpm dev`
-  - Running tests: `pnpm test`
-  - Environment variable reference (all 4 vars with descriptions)
-  - Note on swapping mock aggregator for Plaid
+- [ ] Create `README.md` with the following sections in order:
+
+  **1. Project overview**
+  - One-paragraph description of what the tool does and who it's for (banker-facing AI product recommendation + account origination)
+  - State that this was built as a job application exercise using Kiro's spec-driven workflow; link to `.kiro/specs/ai-product-recommendations/` so a reviewer can browse the `requirements.md`, `design.md`, and `tasks.md` that drove the implementation
+  - Note that shadcn/ui component conventions were chosen to match Nymbus's internal `olb_react_graphql` reference repo; state which approach was used (public shadcn/ui CLI or cloned reference components)
+  - Note what was explicitly mocked for this build's 3–5 hour scope vs. what is real:
+    - **Mocked:** Plaid-style account aggregation (fixture data via `lib/aggregator/mock-provider.ts`), KYC/sanctions screening (customers assumed pre-verified)
+    - **Real:** live FRED-derived product rates (fetched from `api.stlouisfed.org` on every request, 24h cached), live Claude API calls (`claude-haiku-4-5-20251001`), real Postgres transactions with atomic rollback on origination failure
+
+  **2. Prerequisites**
+  - Node 18+ and pnpm installed locally
+  - **Postgres database:** "This project requires a Postgres database. Create a free instance at [neon.tech](https://neon.tech) or [supabase.com](https://supabase.com), then copy the connection string they provide — you'll need it for `DATABASE_URL` in the next step."
+  - **Anthropic API key:** obtain from [platform.anthropic.com](https://platform.anthropic.com) (not console.anthropic.com)
+  - **FRED API key (free):** register at [fred.stlouisfed.org/docs/api/api_key.html](https://fred.stlouisfed.org/docs/api/api_key.html)
+
+  **3. Setup — exact run order**
+  ```
+  pnpm install
+  pnpm approve-builds   # if prompted for build script approval
+  cp .env.local.example .env.local   # then fill in real values for all 4 vars
+  pnpm migrate          # creates all tables in your Postgres database
+  pnpm seed             # loads demo customers, products, and transactions
+  pnpm dev              # starts the dev server at http://localhost:3000
+  ```
+  Note that `pnpm migrate` and `pnpm seed` must both be run before the app will function — the app has no bundled SQLite fallback.
+
+  **4. Running tests**
+  ```
+  pnpm test             # runs full test suite (unit + property-based tests)
+  pnpm test:coverage    # test run with coverage report
+  ```
+
+  **5. Environment variable reference** — render as a Markdown table:
+  | Variable | Required | Purpose | Where to get it |
+  |---|---|---|---|
+  | `DATABASE_URL` | Yes | Postgres connection string | Your Neon or Supabase project dashboard |
+  | `ANTHROPIC_API_KEY` | Yes | Claude API authentication | [platform.anthropic.com](https://platform.anthropic.com) |
+  | `FRED_API_KEY` | Yes | FRED API for live benchmark rates | [fred.stlouisfed.org/docs/api/api_key.html](https://fred.stlouisfed.org/docs/api/api_key.html) |
+  | `AGGREGATOR_PROVIDER` | No | `mock` (default) or `plaid` | Set to `mock` for local development |
+
+  **6. Swapping the mock aggregator for real Plaid**
+  - The aggregator is behind an `AggregatorProvider` interface in `lib/aggregator/interface.ts`
+  - To swap: implement `lib/aggregator/plaid-provider.ts` satisfying the interface, set `AGGREGATOR_PROVIDER=plaid` in your environment
+  - No other code changes are required — the API route and signal assembly query both go through the interface
 
 **Acceptance criteria:** Smoke test passes end-to-end against the seeded test database. README is complete and accurate.
 
