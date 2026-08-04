@@ -41,6 +41,7 @@
     "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.2.12",
+    "fast-check": "^4.9.0",
     "tailwindcss": "^4",
     "tsx": "^4.23.5",
     "typescript": "^5",

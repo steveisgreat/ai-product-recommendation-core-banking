@@ -10,11 +10,8 @@ export default defineConfig({
     setupFiles: [],
     include: ['**/*.test.ts', '**/*.test.tsx'],
     exclude: ['node_modules', '.next'],
-    environmentMatchGlobs: [
-      // UI component tests will use jsdom when they're added (task 12+)
-      ['**/*.component.test.tsx', 'jsdom'],
-      ['**/components/**/*.test.tsx', 'jsdom'],
-    ],
+    // environmentMatchGlobs removed — not available in vitest v4.
+    // UI component tests will use jsdom when added (task 12+) via per-file config.
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
