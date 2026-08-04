@@ -132,14 +132,22 @@
 **Sub-tasks:**
 - [ ] Import `RULE_KEYS` from `lib/eligibility-rules.ts` (created in Task 3)
 - [ ] Implement `evaluateEligibility(signals: CustomerSignals, products: Product[]): EligibilityResult`
+- [ ] Define explicit band orderings as module-level constants (these are the basis for ordinal "≥" comparisons):
+  - `BALANCE_BAND_ORDER: BalanceBand[] = ['UNDER_1K', '1K_5K', '5K_25K', '25K_100K', 'OVER_100K']`
+  - `INCOME_BAND_ORDER: IncomeBand[] = ['LOW', 'LOWER_MIDDLE', 'MIDDLE', 'UPPER_MIDDLE', 'HIGH']`
+- [ ] Implement `isAtLeastBand(actual: BalanceBand, minimum: BalanceBand): boolean` helper — returns true if `BALANCE_BAND_ORDER.indexOf(actual) >= BALANCE_BAND_ORDER.indexOf(minimum)`
+- [ ] Implement `isAtLeastIncome(actual: IncomeBand, minimum: IncomeBand): boolean` helper — same pattern against `INCOME_BAND_ORDER`
 - [ ] Implement rule predicate map keyed on values from `RULE_KEYS` (do not use string literals) — one predicate per key:
   - `RULE_KEYS.NO_EXISTING_CHECKING`, `NO_EXISTING_SAVINGS`, `NO_EXISTING_CD`, `NO_EXISTING_MMA`, `NO_EXISTING_CREDIT_CARD`, `NO_EXISTING_HELOC`, `NO_EXISTING_OVERDRAFT`
   - `MIN_TENURE_MONTHS_3`, `MIN_TENURE_MONTHS_6`
-  - `MIN_BALANCE_BAND_1K_5K`, `MIN_BALANCE_BAND_5K_25K`, `MIN_BALANCE_BAND_25K_100K`
+  - `MIN_BALANCE_BAND_1K_5K`, `MIN_BALANCE_BAND_5K_25K`, `MIN_BALANCE_BAND_25K_100K` — **use `isAtLeastBand()` ordinal comparison, NOT exact string equality**
   - `NO_OVERDRAFT_LAST_90D`
-  - `MIN_INCOME_BAND_MIDDLE`, `MIN_INCOME_BAND_UPPER_MIDDLE`
+  - `MIN_INCOME_BAND_MIDDLE`, `MIN_INCOME_BAND_UPPER_MIDDLE` — **use `isAtLeastIncome()` ordinal comparison, NOT exact string equality**
   - `HAS_EXTERNAL_ACCOUNT`
   - `HAS_EXISTING_CHECKING`
+- [ ] Write unit test: a customer in `25K_100K` balance band passes `MIN_BALANCE_BAND_5K_25K` (proves ordinal ≥, not exact equality)
+- [ ] Write unit test: a customer in `HIGH` income band passes `MIN_INCOME_BAND_MIDDLE` (proves ordinal ≥, not exact equality)
+- [ ] Write unit test: a customer in `1K_5K` balance band fails `MIN_BALANCE_BAND_5K_25K` (proves the lower bound is enforced)
 - [ ] **Unknown rule_key must throw, not silently skip**: if `evaluateEligibility` encounters a `rule_key` in a product's `eligibility_rules` that has no matching entry in the predicate map, it must throw an `Error` (e.g. `UnknownRuleKeyError`) — silent non-matching is a bug risk
 - [ ] Each `AuditRecord` includes `rule_key`, `description`, `passed`, `actual_value`
 - [ ] Return only products where ALL rules pass
@@ -584,7 +592,11 @@
   | `FRED_API_KEY` | Yes | FRED API for live benchmark rates | [fred.stlouisfed.org/docs/api/api_key.html](https://fred.stlouisfed.org/docs/api/api_key.html) |
   | `AGGREGATOR_PROVIDER` | No | `mock` (default) or `plaid` | Set to `mock` for local development |
 
-  **6. Swapping the mock aggregator for real Plaid**
+  **6. Resetting your local data**
+  - Re-run `pnpm seed` any time you want to reset to a clean demo state.
+  - Note: `pnpm seed` performs a full wipe of all 7 tables before reinserting fixture data. Any accounts originated or recommendations dismissed through manual testing in the running app will be erased. This is expected behavior — the seed script is designed to return the database to a known starting point for demos and development.
+
+  **7. Swapping the mock aggregator for real Plaid**
   - The aggregator is behind an `AggregatorProvider` interface in `lib/aggregator/interface.ts`
   - To swap: implement `lib/aggregator/plaid-provider.ts` satisfying the interface, set `AGGREGATOR_PROVIDER=plaid` in your environment
   - No other code changes are required — the API route and signal assembly query both go through the interface

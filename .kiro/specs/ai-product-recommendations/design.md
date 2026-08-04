@@ -380,6 +380,15 @@ Eligibility rules are stored as JSONB in `products.eligibility_rules`:
 ]
 ```
 
+**Ordinal band comparisons:** Balance-band and income-band rules (e.g. `min_balance_band_5K_25K`) use ordinal "≥" comparisons, not exact string equality. The engine defines explicit band orderings:
+
+```typescript
+const BALANCE_BAND_ORDER: BalanceBand[] = ['UNDER_1K', '1K_5K', '5K_25K', '25K_100K', 'OVER_100K']
+const INCOME_BAND_ORDER: IncomeBand[]   = ['LOW', 'LOWER_MIDDLE', 'MIDDLE', 'UPPER_MIDDLE', 'HIGH']
+```
+
+A rule like `MIN_BALANCE_BAND_5K_25K` passes when the customer's `total_balance_band` index in `BALANCE_BAND_ORDER` is **≥** the index of `'5K_25K'` (which is 2). So a customer in `25K_100K` (index 3) or `OVER_100K` (index 4) also passes — not just `5K_25K` exactly. Same logic applies to `MIN_INCOME_BAND_MIDDLE` and `MIN_INCOME_BAND_UPPER_MIDDLE` against `INCOME_BAND_ORDER`.
+
 Seed product catalog (6 products minimum, rates FRED-derived):
 
 | Product | Key Eligibility Rules |
