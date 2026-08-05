@@ -22,6 +22,32 @@ This was built as a job application exercise using [Kiro's](https://kiro.dev) sp
 | **FRED** (`api.stlouisfed.org`) | Live Federal Funds Rate for product catalog rates | Fetched server-side with 24h cache; spread formulas derive each product's APY/APR from the benchmark rate |
 | **Anthropic Claude** (`claude-haiku-4-5-20251001`) | Recommendation ranking and plain-English rationale generation | Structured JSON prompt → Zod-validated response → post-parse product membership enforcement |
 
+### Sample Anthropic API Call
+
+```typescript
+import Anthropic from '@anthropic-ai/sdk'
+
+const client = new Anthropic() // reads ANTHROPIC_API_KEY from env
+
+const response = await client.messages.create({
+  model: 'claude-haiku-4-5-20251001',
+  max_tokens: 1024,
+  system: 'You are a banking product recommendation assistant. Output strict JSON only.',
+  messages: [{
+    role: 'user',
+    content: JSON.stringify({
+      customer_signals: { total_balance_band: '5K_25K', tenure_months: 18 },
+      eligible_products: [{ id: 'abc', name: 'High-Yield Savings', rate: 5.83 }],
+    }),
+  }],
+})
+
+const text = response.content.find(b => b.type === 'text')?.text
+const recommendations = JSON.parse(text)
+```
+
+> The real implementation in [`lib/llm-service.ts`](lib/llm-service.ts) adds a 10-second abort timeout, markdown code-fence stripping, Zod schema validation, and a post-parse product-membership check that rejects any product_id not in the eligible set.
+
 ### What's mocked vs. real
 
 | Layer | Status | Notes |
@@ -40,6 +66,11 @@ This was built as a job application exercise using [Kiro's](https://kiro.dev) sp
 **Banker-facing, not customer-facing.** This is a relationship-manager tool, not a customer self-service flow. The design assumes a banker reviews and contextualizes recommendations before discussing them with the customer — the rationale text is written to be "read aloud" quality, not marketing copy. This keeps the compliance posture simpler (banker makes the final decision, AI assists) and avoids the much harder UX/regulatory problem of AI-generated customer-facing financial advice.
 
 **Deterministic eligibility engine + LLM only for ranking/rationale.** The AI never makes an eligibility decision. A rules-based `evaluateEligibility()` function determines which products a customer qualifies for using auditable, deterministic logic. Only the already-eligible set is sent to Claude, which ranks them and generates rationale. If Claude returns a product_id not in the eligible set, `validateProductMembership()` throws immediately and nothing is persisted. This is enforced programmatically, not just via prompt instruction — it's the hard compliance boundary that ensures the LLM can't override business rules.
+
+How the two-stage selection works:
+
+- **Eligibility** (`evaluateEligibility()` in `lib/eligibility-engine.ts`): each product carries a list of `rule_key`s — e.g. no existing account of that type, minimum tenure in months, minimum balance/income band (evaluated as ordinal ≥, not exact match), no overdraft in the last 90 days. A product passes only if the customer's anonymized signals satisfy every rule attached to it. This produces a machine-readable audit trail (`AuditRecord[]`) and the eligible product set.
+- **Ranking** (Claude): only the eligible set is sent to the LLM, which ranks up to 3 products by relevance to the customer's signals and writes the plain-English rationale. The LLM has no ability to add ineligible products or override eligibility — `validateProductMembership()` enforces this boundary after every response.
 
 **shadcn/ui via public CLI, not cloned reference components.** The public `shadcn` CLI (v4) was used rather than directly cloning Nymbus's private `olb_react_graphql` reference repo. This keeps the project self-contained and reproducible from a public checkout, while still matching the component API patterns (CVA variants, Tailwind utility classes, Radix primitives) that the reference repo uses.
 
