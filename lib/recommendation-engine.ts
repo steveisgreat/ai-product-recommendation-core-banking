@@ -13,12 +13,20 @@ import { v4 as uuidv4 } from 'uuid'
 import type { Product } from '@/lib/db/types'
 import type { AuditRecord } from '@/lib/eligibility-engine'
 
+export interface RecommendationWithId {
+  id: string
+  product_id: string
+  rank: number
+  rationale: string
+  compliance_note: string
+}
+
 export type RecommendationEngineResult = {
   eligible: false
 } | {
   eligible: true
   sessionId: string
-  recommendations: RecommendationOutput['recommendations']
+  recommendations: RecommendationWithId[]
   sessionComplianceNote: string
 }
 
@@ -54,13 +62,22 @@ export async function generateRecommendations(
   const sessionId = uuidv4()
 
   // Step 7: Persist in a single DB transaction
+  const insertedRecs: RecommendationWithId[] = []
   await sql.begin(async (tx) => {
-    // Insert recommendation rows (1–3)
+    // Insert recommendation rows (1–3) with RETURNING id
     for (const rec of llmResult.recommendations) {
-      await tx`
+      const rows = await tx`
         INSERT INTO recommendations (session_id, customer_id, product_id, rank, rationale, compliance_note, session_compliance_note, status)
         VALUES (${sessionId}, ${customerId}, ${rec.product_id}, ${rec.rank}, ${rec.rationale}, ${rec.compliance_note}, ${llmResult.session_compliance_note}, 'PENDING')
+        RETURNING id
       `
+      insertedRecs.push({
+        id: rows[0].id,
+        product_id: rec.product_id,
+        rank: rec.rank,
+        rationale: rec.rationale,
+        compliance_note: rec.compliance_note,
+      })
     }
 
     // Insert eligibility_audit rows (one per product evaluated)
@@ -81,11 +98,11 @@ export async function generateRecommendations(
     }
   })
 
-  // Step 8: Return results
+  // Step 8: Return results (with DB-generated recommendation IDs)
   return {
     eligible: true,
     sessionId,
-    recommendations: llmResult.recommendations,
+    recommendations: insertedRecs,
     sessionComplianceNote: llmResult.session_compliance_note,
   }
 }
