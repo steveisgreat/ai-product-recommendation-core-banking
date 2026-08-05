@@ -4,6 +4,7 @@ import { CustomerProfileCard } from "@/components/customer-profile-card"
 import { CoreAccountsPanel } from "@/components/core-accounts-panel"
 import { ExternalAccountsPanel } from "@/components/external-accounts-panel"
 import { RecommendationPanel } from "@/components/recommendation-panel"
+import { RecommendationHistoryTable } from "@/components/recommendation-history-table"
 import Link from "next/link"
 
 export const dynamic = "force-dynamic"
@@ -68,6 +69,9 @@ export default async function CustomerProfilePage({ params }: Props) {
 
       {/* Recommendation panel */}
       <RecommendationPanel customerId={id} />
+
+      {/* Recommendation history */}
+      <RecommendationHistoryTable customerId={id} />
     </div>
   )
 }

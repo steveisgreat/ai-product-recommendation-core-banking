@@ -30,5 +30,13 @@ export async function GET(
     )
   }
 
-  return NextResponse.json(rows)
+  // Parse rules_evaluated from JSON string if needed (postgres driver may return it as a string)
+  const parsed = rows.map(row => ({
+    ...row,
+    rules_evaluated: typeof row.rules_evaluated === 'string'
+      ? JSON.parse(row.rules_evaluated)
+      : row.rules_evaluated,
+  }))
+
+  return NextResponse.json(parsed)
 }
