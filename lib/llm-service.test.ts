@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import * as fc from 'fast-check'
 import { getRecommendations, validateProductMembership, LLMServiceError } from '@/lib/llm-service'
 import type { CustomerSignals, Product } from '@/lib/db/types'
 
@@ -148,5 +149,96 @@ describe('validateProductMembership', () => {
     }
     expect(() => validateProductMembership(parsed, mockProducts)).toThrow(LLMServiceError)
     expect(() => validateProductMembership(parsed, mockProducts)).toThrow('not in the eligible set')
+  })
+})
+
+
+// ─── LLM Service — Property-Based Tests ─────────────────────────────────────────
+
+describe('LLM Service - Property-Based Tests', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    process.env.ANTHROPIC_API_KEY = 'test-key'
+  })
+
+  /**
+   * Property: Any response containing a product_id NOT in the eligible set
+   * always throws LLMServiceError('INVALID_PRODUCT_ID').
+   */
+  it('any random product_id outside eligible set always throws INVALID_PRODUCT_ID', () => {
+    fc.assert(
+      fc.property(
+        fc.uuid(),
+        (randomProductId) => {
+          // Ensure the random ID is NOT in the eligible set
+          if (mockProducts.some(p => p.id === randomProductId)) return true // skip collisions
+
+          const parsed = {
+            recommendations: [
+              { product_id: randomProductId, rank: 1, rationale: 'test', compliance_note: 'test' },
+            ],
+            session_compliance_note: 'test',
+          }
+
+          expect(() => validateProductMembership(parsed, mockProducts)).toThrow(LLMServiceError)
+          return true
+        }
+      ),
+      { numRuns: 100 }
+    )
+  })
+
+  /**
+   * Property: Responses with out-of-range ranks (< 1 or > 3) are rejected by
+   * RecommendationOutputSchema (Zod validation), verified via getRecommendations
+   * which parses the response with the schema.
+   */
+  it('out-of-range ranks are rejected by schema validation', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: -10, max: 0 }).chain(badRank =>
+          fc.constant(badRank)
+        ),
+        async (badRank) => {
+          const badResponse = {
+            recommendations: [
+              { product_id: 'product-aaa-111', rank: badRank, rationale: 'test', compliance_note: 'test' },
+            ],
+            session_compliance_note: 'test',
+          }
+          mockCreate.mockResolvedValue({
+            content: [{ type: 'text', text: JSON.stringify(badResponse) }],
+          })
+
+          await expect(getRecommendations(mockSignals, mockProducts)).rejects.toMatchObject({ code: 'SCHEMA_ERROR' })
+        }
+      ),
+      { numRuns: 50 }
+    )
+  })
+
+  /**
+   * Property: Responses with rank > 3 are rejected by schema validation.
+   */
+  it('ranks above 3 are rejected by schema validation', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 4, max: 100 }),
+        async (badRank) => {
+          const badResponse = {
+            recommendations: [
+              { product_id: 'product-aaa-111', rank: badRank, rationale: 'test', compliance_note: 'test' },
+            ],
+            session_compliance_note: 'test',
+          }
+          mockCreate.mockResolvedValue({
+            content: [{ type: 'text', text: JSON.stringify(badResponse) }],
+          })
+
+          await expect(getRecommendations(mockSignals, mockProducts)).rejects.toMatchObject({ code: 'SCHEMA_ERROR' })
+        }
+      ),
+      { numRuns: 50 }
+    )
   })
 })

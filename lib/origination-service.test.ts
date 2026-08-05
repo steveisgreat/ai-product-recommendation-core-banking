@@ -291,4 +291,101 @@ describe('Origination Service - Property-Based Tests', () => {
       { numRuns: 100 }
     )
   }, 120_000)
+
+  /**
+   * Property 4: accounts.balance always equals the depositAmount passed at origination.
+   * Genuine fc.assert property test with per-iteration setup/teardown against real DB.
+   *
+   * Pattern: same per-iteration insert/assert/delete as recommendation-engine.test.ts
+   * dismissal cooldown tests. Each generated depositAmount gets a fresh origination,
+   * verification, and cleanup cycle.
+   */
+  it('balance equals depositAmount for any valid positive amount', async () => {
+    const CUSTOMER_JAMES_ID_LOCAL = '20000000-0000-0000-0000-000000000002'
+    const PRODUCT_SAVINGS_ID_LOCAL = '10000000-0000-0000-0000-000000000002'
+
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 1, max: 9999 }),
+        async (depositAmount) => {
+          // Setup: clean up any existing savings account for James
+          await sql`
+            UPDATE recommendations SET originated_account_id = NULL
+            WHERE originated_account_id IN (
+              SELECT id FROM accounts WHERE customer_id = ${CUSTOMER_JAMES_ID_LOCAL} AND product_id = ${PRODUCT_SAVINGS_ID_LOCAL}
+            )
+          `
+          await sql`
+            DELETE FROM transactions WHERE account_id IN (
+              SELECT id FROM accounts WHERE customer_id = ${CUSTOMER_JAMES_ID_LOCAL} AND product_id = ${PRODUCT_SAVINGS_ID_LOCAL}
+            )
+          `
+          await sql`DELETE FROM accounts WHERE customer_id = ${CUSTOMER_JAMES_ID_LOCAL} AND product_id = ${PRODUCT_SAVINGS_ID_LOCAL}`
+
+          // Create a fresh recommendation row for this iteration
+          const recRows = await sql`
+            INSERT INTO recommendations (session_id, customer_id, product_id, rank, rationale, compliance_note, status)
+            VALUES (gen_random_uuid(), ${CUSTOMER_JAMES_ID_LOCAL}, ${PRODUCT_SAVINGS_ID_LOCAL}, 1, 'PBT test', 'PBT note', 'PENDING')
+            RETURNING id
+          `
+
+          // Originate with the generated depositAmount
+          const result = await originateAccount({
+            customerId: CUSTOMER_JAMES_ID_LOCAL,
+            productId: PRODUCT_SAVINGS_ID_LOCAL,
+            recommendationId: recRows[0].id,
+            depositAmount,
+          })
+
+          expect(result.success).toBe(true)
+          if (result.success) {
+            // Verify balance in DB matches the deposit amount
+            const accts = await sql`SELECT * FROM accounts WHERE id = ${result.account.id}`
+            expect(Number(accts[0].balance)).toBe(depositAmount)
+
+            // Verify the ACCOUNT_OPEN transaction amount also matches
+            const txns = await sql`SELECT * FROM transactions WHERE account_id = ${result.account.id} AND type = 'ACCOUNT_OPEN'`
+            expect(txns).toHaveLength(1)
+            expect(Number(txns[0].amount)).toBe(depositAmount)
+          }
+
+          // Teardown: clean up this iteration's data
+          await sql`UPDATE recommendations SET originated_account_id = NULL WHERE id = ${recRows[0].id}`
+          await sql`
+            DELETE FROM transactions WHERE account_id IN (
+              SELECT id FROM accounts WHERE customer_id = ${CUSTOMER_JAMES_ID_LOCAL} AND product_id = ${PRODUCT_SAVINGS_ID_LOCAL}
+            )
+          `
+          await sql`DELETE FROM accounts WHERE customer_id = ${CUSTOMER_JAMES_ID_LOCAL} AND product_id = ${PRODUCT_SAVINGS_ID_LOCAL}`
+          await sql`DELETE FROM recommendations WHERE id = ${recRows[0].id}`
+        }
+      ),
+      { numRuns: 20 }
+    )
+  }, 120_000)
+
+  /**
+   * Property 5: Every originated account has exactly one ACCOUNT_OPEN transaction,
+   * and its amount equals the account balance.
+   * Verified across all accounts that were created through the origination flow
+   * (accounts linked to a recommendation row via originated_account_id).
+   */
+  it('all originated accounts have exactly one ACCOUNT_OPEN transaction matching their balance', async () => {
+    // Only check accounts that were actually originated (linked via recommendations)
+    const originatedAccounts = await sql`
+      SELECT a.* FROM accounts a
+      INNER JOIN recommendations r ON r.originated_account_id = a.id
+      WHERE a.status = 'ACTIVE'
+    `
+
+    for (const account of originatedAccounts) {
+      const openTxns = await sql`
+        SELECT * FROM transactions WHERE account_id = ${account.id} AND type = 'ACCOUNT_OPEN'
+      `
+      // Every originated account must have exactly one ACCOUNT_OPEN
+      expect(openTxns.length).toBe(1)
+      // And its amount must equal the account balance
+      expect(Number(openTxns[0].amount)).toBe(Number(account.balance))
+    }
+  })
 })

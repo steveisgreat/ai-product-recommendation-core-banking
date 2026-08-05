@@ -256,4 +256,105 @@ describe('Eligibility Engine - Property-Based Tests', () => {
       { numRuns: 100 }
     )
   })
+
+  /**
+   * Property 5: evaluateEligibility is deterministic — same inputs produce same outputs.
+   */
+  it('evaluateEligibility is deterministic', () => {
+    fc.assert(
+      fc.property(arbitrarySignals, (signals) => {
+        const products = [
+          makeProduct('p1', [
+            { rule_key: RULE_KEYS.MIN_TENURE_MONTHS_3, description: 'Tenure >= 3' },
+          ]),
+          makeProduct('p2', [
+            { rule_key: RULE_KEYS.NO_EXISTING_CHECKING, description: 'No checking' },
+            { rule_key: RULE_KEYS.MIN_BALANCE_BAND_5K_25K, description: 'Balance >= 5K_25K' },
+          ]),
+        ]
+
+        const result1 = evaluateEligibility(signals, products)
+        const result2 = evaluateEligibility(signals, products)
+
+        // Same eligible set
+        const ids1 = result1.eligible.map(p => p.id).sort()
+        const ids2 = result2.eligible.map(p => p.id).sort()
+        expect(ids1).toEqual(ids2)
+
+        // Same audit results
+        expect(result1.audit.length).toBe(result2.audit.length)
+        for (let i = 0; i < result1.audit.length; i++) {
+          expect(result1.audit[i].passed).toBe(result2.audit[i].passed)
+          expect(result1.audit[i].rule_key).toBe(result2.audit[i].rule_key)
+        }
+        return true
+      }),
+      { numRuns: 100 }
+    )
+  })
+
+  /**
+   * Property 6: No product in eligible output should have all rules failing
+   * (if it's eligible, at least its audit records must all pass).
+   */
+  it('every eligible product has all its audit records passing', () => {
+    fc.assert(
+      fc.property(arbitrarySignals, (signals) => {
+        const products = [
+          makeProduct('p1', [
+            { rule_key: RULE_KEYS.MIN_TENURE_MONTHS_6, description: 'Tenure >= 6' },
+          ]),
+          makeProduct('p2', [
+            { rule_key: RULE_KEYS.NO_EXISTING_CHECKING, description: 'No checking' },
+            { rule_key: RULE_KEYS.MIN_INCOME_BAND_MIDDLE, description: 'Income >= MIDDLE' },
+          ]),
+          makeProduct('p3', [
+            { rule_key: RULE_KEYS.HAS_EXTERNAL_ACCOUNT, description: 'Has external' },
+          ]),
+        ]
+
+        const result = evaluateEligibility(signals, products)
+
+        for (const eligibleProduct of result.eligible) {
+          const productAudits = result.audit.filter(a => a.product_id === eligibleProduct.id)
+          const allPassed = productAudits.every(a => a.passed)
+          expect(allPassed).toBe(true)
+        }
+        return true
+      }),
+      { numRuns: 100 }
+    )
+  })
+
+  /**
+   * Property 7: The audit array covers every input product (no product is silently skipped).
+   */
+  it('audit array has entries for every input product', () => {
+    fc.assert(
+      fc.property(arbitrarySignals, (signals) => {
+        const products = [
+          makeProduct('p1', [
+            { rule_key: RULE_KEYS.MIN_TENURE_MONTHS_3, description: 'Tenure >= 3' },
+          ]),
+          makeProduct('p2', [
+            { rule_key: RULE_KEYS.NO_EXISTING_SAVINGS, description: 'No savings' },
+          ]),
+          makeProduct('p3', [
+            { rule_key: RULE_KEYS.HAS_EXISTING_CHECKING, description: 'Has checking' },
+            { rule_key: RULE_KEYS.NO_EXISTING_OVERDRAFT, description: 'No overdraft' },
+          ]),
+        ]
+
+        const result = evaluateEligibility(signals, products)
+        const auditProductIds = new Set(result.audit.map(a => a.product_id))
+
+        // Every input product must have at least one audit entry
+        for (const product of products) {
+          expect(auditProductIds.has(product.id)).toBe(true)
+        }
+        return true
+      }),
+      { numRuns: 100 }
+    )
+  })
 })
