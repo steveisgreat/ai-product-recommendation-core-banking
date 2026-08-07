@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 import { DM_Sans, Inter, Geist_Mono } from "next/font/google"
 import Link from "next/link"
+import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
 
 const dmSans = DM_Sans({
@@ -67,6 +68,7 @@ export default function RootLayout({
         <main className="flex-1 overflow-auto">
           {children}
         </main>
+        <Analytics />
       </body>
     </html>
   )
