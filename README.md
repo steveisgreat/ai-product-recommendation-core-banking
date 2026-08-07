@@ -2,6 +2,15 @@
 
 An AI-driven product recommendation and account origination tool for a core banking system. A retail banker selects a customer, receives 1–3 AI-generated product recommendations ranked by relevance (with plain-English rationale and compliance/fairness notes), and can originate the recommended account in one click — closing the loop from insight to action inside the same application.
 
+**Key features:**
+- AI-generated product recommendations (1–3 ranked options) with plain-English rationale, powered by Claude
+- Deterministic, rule-based eligibility engine — the AI ranks and explains, but never makes the eligibility decision itself
+- One-click account origination with atomic transaction safety and automatic duplicate detection
+- Live interest rates derived from the Federal Reserve's benchmark rate (FRED), not hardcoded
+- Fair-lending-aware by design: banded (not exact) financial data, no protected-class fields anywhere in the AI payload, full compliance audit trail per recommendation
+- Recommendation history with expandable eligibility audit — see exactly which rules passed or failed for every product considered, not just the recommended ones
+- Mock external-account aggregation behind a swappable interface, ready for a real Plaid integration
+
 **Live demo:** [ai-product-recommendation-core-bank.vercel.app](https://ai-product-recommendation-core-bank.vercel.app)
 
 ## Project Context
@@ -24,29 +33,53 @@ This was built as a job application exercise using [Kiro's](https://kiro.dev) sp
 
 ### Sample Anthropic API Call
 
-```typescript
-import Anthropic from '@anthropic-ai/sdk'
+The real system prompt, verbatim from [`lib/llm-service.ts`](lib/llm-service.ts):
 
-const client = new Anthropic() // reads ANTHROPIC_API_KEY from env
+```
+You are a banking product recommendation assistant. You will receive a JSON object with anonymized customer financial signals and a list of eligible products.
 
-const response = await client.messages.create({
-  model: 'claude-haiku-4-5-20251001',
-  max_tokens: 1024,
-  system: 'You are a banking product recommendation assistant. Output strict JSON only.',
-  messages: [{
-    role: 'user',
-    content: JSON.stringify({
-      customer_signals: { total_balance_band: '5K_25K', tenure_months: 18 },
-      eligible_products: [{ id: 'abc', name: 'High-Yield Savings', rate: 5.83 }],
-    }),
-  }],
-})
+Rules you must follow without exception:
+- Use ONLY the fields provided in the input JSON. Do not infer or reference any information not present.
+- Never reference or imply any protected-class characteristics (race, color, religion, national origin, sex, marital status, age, or receipt of public assistance) in rationale or compliance notes.
+- Rank products by relevance to the customer's financial signals only — not by bank profitability or promotional status.
+- Rationale must be 1–2 plain-English sentences a banker could read aloud to a customer.
+- Output strict JSON only — no text outside the JSON object.
+- You may only recommend products from the eligible_products list provided. Do not introduce or reference any product not in that list.
 
-const text = response.content.find(b => b.type === 'text')?.text
-const recommendations = JSON.parse(text)
+Output schema:
+{
+  "recommendations": [
+    { "product_id": "uuid", "rank": 1, "rationale": "string", "compliance_note": "string" }
+  ],
+  "session_compliance_note": "string"
+}
 ```
 
-> The real implementation in [`lib/llm-service.ts`](lib/llm-service.ts) adds a 10-second abort timeout, markdown code-fence stripping, Zod schema validation, and a post-parse product-membership check that rejects any product_id not in the eligible set.
+A real user payload (James Okafor, from seed data):
+
+```json
+{
+  "customer_signals": {
+    "account_count": 1,
+    "account_types": ["CHECKING"],
+    "total_balance_band": "5K_25K",
+    "avg_monthly_inflow_band": "5K_25K",
+    "transaction_pattern_flags": ["RECURRING_DIRECT_DEPOSIT"],
+    "tenure_months": 14,
+    "household_income_band": "MIDDLE",
+    "external_account_types": ["CHECKING"]
+  },
+  "eligible_products": [
+    { "id": "10000000-0000-0000-0000-000000000002", "name": "High-Yield Savings", "account_type": "SAVINGS", "rate": 4.13, "description": "High-yield savings account with competitive APY and no minimum balance after opening." },
+    { "id": "10000000-0000-0000-0000-000000000003", "name": "Certificate of Deposit 12mo", "account_type": "CD", "rate": 4.63, "description": "12-month certificate of deposit with guaranteed fixed rate and FDIC insurance." },
+    { "id": "10000000-0000-0000-0000-000000000005", "name": "Credit Card", "account_type": "CREDIT_CARD", "rate": 19.62, "description": "Rewards credit card with cashback on everyday purchases and no annual fee." }
+  ]
+}
+```
+
+Note what's *not* in the payload: no name, DOB, age, or address — nothing that could correlate to a protected class. `eligible_products` is already pre-filtered by the deterministic eligibility engine before this call ever fires, so the LLM is ranking among pre-approved options, not deciding eligibility itself.
+
+> The real implementation in [`lib/llm-service.ts`](lib/llm-service.ts) adds a 10-second abort timeout, markdown code-fence stripping (Claude sometimes wraps JSON in ` ```json ` fences despite instructions), Zod schema validation, and a post-parse product-membership check that rejects any `product_id` not in the eligible set.
 
 ### What's mocked vs. real
 
